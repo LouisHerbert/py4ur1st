@@ -3,7 +3,7 @@ import time
 import serial
 
 #print "Hello wwwww"
-COM_PORT = 'COM5'
+COM_PORT = 'COM11'
 LIN_NAD = 0xa0
 TESTER_PRESENT_PERIODE = 0.5  # time in seconds
 
@@ -74,14 +74,14 @@ def crc_CCIT16(datablock, crc=0xffff):
     return crc
 
 
-def send_Tester_present():
+def send_Tester_present(LIN):
     #global LIN
     LIN.send_request([ LIN_NAD, 2, 0x3e, 0x80, 0xff, 0xff, 0xff, 0xff ])  # tester present, no answer expected
     return
 
 ################################################################################################
 
-def requestSolar1():
+def requestSolar1(LIN):
     print("Request Solar channel 1:")
     ans = LIN.send_request([LIN_NAD, 0x3, 0x22, 0xf1, 0xf5, 0xff, 0xff, 0xff])
     print()
@@ -107,7 +107,7 @@ def requestSolar1():
     return value
 
 
-def requestSolar2():
+def requestSolar2(LIN):
     print("Request Solar channel 2:")
     ans = LIN.send_request([LIN_NAD, 0x3, 0x22, 0xf1, 0xf6, 0xff, 0xff, 0xff])
     print()
@@ -131,7 +131,7 @@ def requestSolar2():
     return value
 
 
-def writeSolarCoeff2NVM(solar_L, solar_R):
+def writeSolarCoeff2NVM(LIN,solar_L, solar_R):
 
     # build the UDS frame
     payload = [0x2e, 0xf1, 0xf8]
@@ -179,7 +179,7 @@ def main():
         print("2: Measured Irradiance in the Left Channel")
         print("3: The reference sensor transmsivity")
         sys.exit(1)
-	
+
     if len(sys.argv) != (3 + 1): # maximum number of arguments is 3
         print("arguments are not correct")
         print("excepted arguments are:")
@@ -199,17 +199,17 @@ def main():
     global LIN
     LIN = T_heikostick(COM_PORT)
 
-    send_Tester_present()
+    send_Tester_present(LIN)
     print()
     time.sleep(1)		# wait until it boots up
 
     # do magic
     try:
-        solar_L = requestSolar2()
+        solar_L = requestSolar2(LIN)
         print("Solar L: ", solar_L)
         print()
         print()
-        solar_R = requestSolar1()
+        solar_R = requestSolar1(LIN)
         print("Solar R: ", solar_R)
         print()
         print()
@@ -222,12 +222,58 @@ def main():
 
     coeff_L = round((solar_L * 1000) / irradiance_L)
     coeff_R = round((solar_R * 1000) / irradiance_R)
-	
+
     print("Coeff L", coeff_L)
     print("Coeff R", coeff_R)
-	
 
-    writeSolarCoeff2NVM(coeff_L, coeff_R)
+    writeSolarCoeff2NVM(LIN,coeff_L, coeff_R)
+
+    # we are done - close the connection
+    LIN.close()
+    print()
+    print('Calibration successful.')
+
+
+def runAuto(para1,para2,para3):
+    Ref_irradiance_R = int(para1)
+    Ref_irradiance_L = int(para2)
+    Transmsivity     = int(para3)
+
+    irradiance_L = Ref_irradiance_L * ( Transmsivity / 100)
+    irradiance_R = Ref_irradiance_R * ( Transmsivity / 100)
+
+    # wake up the sensor
+    global LIN
+    LIN = T_heikostick(COM_PORT)
+
+    send_Tester_present(LIN)
+    print()
+    time.sleep(1)        # wait until it boots up
+
+    # do magic
+    try:
+        solar_L = requestSolar2(LIN)
+        print("Solar L: ", solar_L)
+        print()
+        print()
+        solar_R = requestSolar1(LIN)
+        print("Solar R: ", solar_R)
+        print()
+        print()
+    except Exception as exc:
+        LIN.close()
+        print(exc)
+        print()
+        print("Calibration NOT successful !!!")
+        sys.exit(1)
+
+    coeff_L = round((solar_L * 1000) / irradiance_L)
+    coeff_R = round((solar_R * 1000) / irradiance_R)
+
+    print("Coeff L", coeff_L)
+    print("Coeff R", coeff_R)
+
+    writeSolarCoeff2NVM(LIN,coeff_L, coeff_R)
 
     # we are done - close the connection
     LIN.close()
@@ -236,4 +282,9 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    if len(sys.argv) > 1:
+        sys.argv[1] = 'help'
+        main()
+    else:
+        runAuto(12800,1965,900)
+        print(sys.argv,len(sys.argv))
